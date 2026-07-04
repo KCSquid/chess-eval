@@ -1,65 +1,203 @@
+"use client";
+
+import { Chessboard, defaultPieces } from "react-chessboard";
+import { Chess } from "chess.js";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
+const CLASSIFICATION_LIMITS = {
+  best: 0,
+  excellent: 0.02,
+  good: 0.05,
+  inaccuracy: 0.1,
+  mistake: 0.2,
+};
+
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+  const [game] = useState(() => new Chess());
+  const [currentFen, setCurrentFen] = useState(game.fen());
+  const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const moveIndex = useRef(0);
+
+  const [pieces, setPieces] = useState({});
+  const workerRef = useRef<Worker | null>(null);
+  const prevEvalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    async function loadGame() {
+      const res = await fetch("/game.pgn");
+      const pgn = await res.text();
+      game.loadPgn(pgn);
+
+      const history = game.history();
+      setMoveHistory(history);
+
+      game.reset();
+    }
+
+    loadGame();
+  }, []);
+
+  // const triggerEngine = (currentFen: string) => {
+  //   workerRef.current?.postMessage({
+  //     type: "START_ANALYSIS",
+  //     fen: currentFen,
+  //     depth: 12,
+  //   });
+  // };
+
+  // const makeComputerMove = (moveShortString: string, currentFen: string) => {
+  //   const newGame = new Chess(currentFen);
+  //   try {
+  //     newGame.move({
+  //       from: moveShortString.slice(0, 2),
+  //       to: moveShortString.slice(2, 4),
+  //       promotion: moveShortString.slice(4, 5) || undefined,
+  //     });
+  //     setGame(newGame);
+  //   } catch (e) {
+  //     console.error("Invalid engine move attempted", e);
+  //   }
+  // };
+
+  // useEffect(() => {
+  //   workerRef.current = new Worker(
+  //     new URL("./workers/stockfish.worker.js", import.meta.url),
+  //   );
+
+  //   workerRef.current.onmessage = (event) => {
+  //     switch (event.data.type) {
+  //       case "BEST_MOVE":
+  //         makeComputerMove(event.data.move, event.data.fen);
+  //         break;
+  //       case "EVAL":
+  //         if (event.data.scoreType === "cp") {
+  //           const currentEvalPawnUnits = event.data.score / 100;
+  //           const activeColor = event.data.fen.split(" ")[1];
+
+  //           if (prevEvalRef.current !== null) {
+  //             const evalLoss =
+  //               activeColor === "w"
+  //                 ? currentEvalPawnUnits - prevEvalRef.current
+  //                 : prevEvalRef.current - currentEvalPawnUnits;
+
+  //             console.log(activeColor, currentEvalPawnUnits, prevEvalRef.current);
+
+  //             let classification = "blunder";
+  //             if (evalLoss <= CLASSIFICATION_LIMITS.best)
+  //               classification = "best";
+  //             else if (evalLoss <= CLASSIFICATION_LIMITS.excellent)
+  //               classification = "excellent";
+  //             else if (evalLoss <= CLASSIFICATION_LIMITS.good)
+  //               classification = "good";
+  //             else if (evalLoss <= CLASSIFICATION_LIMITS.inaccuracy)
+  //               classification = "inaccuracy";
+  //             else if (evalLoss <= CLASSIFICATION_LIMITS.mistake)
+  //               classification = "mistake";
+
+  //             console.log(
+  //               `Move Classification: ${classification} (Eval loss: ${evalLoss.toFixed(2)})`,
+  //             );
+  //           }
+  //           prevEvalRef.current = currentEvalPawnUnits;
+  //         }
+  //         break;
+  //       default:
+  //         console.log(event.data.type);
+  //     }
+  //   };
+
+  //   return () => workerRef.current?.terminate();
+  // }, []);
+
+  // load custom pieces
+  useEffect(() => {
+    function run() {
+      const pieceTypes = [
+        "wK",
+        "wQ",
+        "wR",
+        "wB",
+        "wN",
+        "wP",
+        "bK",
+        "bQ",
+        "bR",
+        "bB",
+        "bN",
+        "bP",
+      ];
+
+      const finished = pieceTypes.reduce(
+        (acc, piece) => ({
+          ...acc,
+          [piece]: () => (
             <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+              src={`/pieces/${piece.toLowerCase()}.png`}
+              alt={`${piece.startsWith("w") ? "white" : "black"}-${piece.substring(1)}`}
+              width={150}
+              height={150}
+              unoptimized
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          ),
+        }),
+        {},
+      );
+
+      setPieces(finished);
+    }
+
+    run();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+      }
+
+      switch (event.key) {
+        case "ArrowLeft":
+          if (moveIndex.current <= 0) return;
+          game.undo();
+          moveIndex.current--;
+          setCurrentFen(game.fen());
+          break;
+        case "ArrowRight":
+          if (moveIndex.current >= moveHistory.length) return;
+          game.move(moveHistory[moveIndex.current]);
+          moveIndex.current++;
+          setCurrentFen(game.fen());
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moveHistory]);
+
+  const chessboardOptions = {
+    pieces: {
+      ...defaultPieces,
+      ...pieces,
+    },
+    position: game.fen(),
+    lightSquareStyle: {
+      backgroundColor: "#eeebe1",
+    },
+    darkSquareStyle: {
+      backgroundColor: "#7691a3",
+    },
+    boardOrientation: "black",
+  };
+
+  return (
+    <div className="w-screen h-screen flex p-16">
+      <div className="h-full aspect-square">
+        <Chessboard options={chessboardOptions} />
+      </div>
     </div>
   );
 }
