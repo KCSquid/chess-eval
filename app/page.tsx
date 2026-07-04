@@ -14,8 +14,6 @@ const CLASSIFICATION_LIMITS = {
 };
 
 const COLORING = {
-  // brilliant: "#00BA9A",
-  // great: "#6690B4",
   best: "#72AE50",
   excellent: "#6BAC48",
   good: "#89AD70",
@@ -24,28 +22,51 @@ const COLORING = {
   blunder: "#FF392C",
 };
 
+interface MoveMetaData {
+  san: string;
+  to: string;
+  classification: string;
+  evalPawnUnits: number | null;
+}
+
 export default function Home() {
   const [game] = useState(() => new Chess());
   const [currentFen, setCurrentFen] = useState(game.fen());
-  const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [moveHistory, setMoveHistory] = useState<MoveMetaData[]>([]);
   const moveIndex = useRef(0);
-  const [lastMoved, setLastMoved] = useState("e4");
+  const [lastMoved, setLastMoved] = useState<string | null>(null);
 
   const [pieces, setPieces] = useState({});
   const workerRef = useRef<Worker | null>(null);
-  const prevEvalRef = useRef<number | null>(null);
-
-  const [moveClassification, setMoveClassification] = useState("best");
+  const [moveClassification, setMoveClassification] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     async function loadGame() {
       const res = await fetch("/game.pgn");
       const pgn = await res.text();
-      game.loadPgn(pgn);
 
-      const history = game.history();
-      setMoveHistory(history);
+      const tempGame = new Chess();
+      tempGame.loadPgn(pgn);
+      const historySan = tempGame.history();
 
+      const structuredHistory: MoveMetaData[] = historySan.map((san) => ({
+        san,
+        to: "",
+        classification: "best",
+        evalPawnUnits: null,
+      }));
+
+      tempGame.reset();
+      for (let i = 0; i < structuredHistory.length; i++) {
+        const move = tempGame.move(structuredHistory[i].san);
+        if (move) {
+          structuredHistory[i].to = move.to;
+        }
+      }
+
+      setMoveHistory(structuredHistory);
       game.reset();
     }
 
@@ -85,15 +106,29 @@ export default function Home() {
 
             const currentWinProb = getWinProbability(playerEval);
 
-            if (prevEvalRef.current !== null) {
+            let prevEvalPawnUnits: number | null = null;
+            const currentIdx = moveIndex.current - 1;
+
+            if (currentIdx > 0) {
+              for (let i = currentIdx - 1; i >= 0; i--) {
+                if (moveHistory[i]?.evalPawnUnits !== null) {
+                  prevEvalPawnUnits = moveHistory[i].evalPawnUnits;
+                  break;
+                }
+              }
+            }
+
+            let classification = "best";
+
+            if (prevEvalPawnUnits !== null) {
               const prevPlayerEval = isWhiteJustMoved
-                ? prevEvalRef.current
-                : -prevEvalRef.current;
+                ? prevEvalPawnUnits
+                : -prevEvalPawnUnits;
               const prevWinProb = getWinProbability(prevPlayerEval);
 
               const probLoss = prevWinProb - currentWinProb;
 
-              let classification = "blunder";
+              classification = "blunder";
               if (probLoss <= CLASSIFICATION_LIMITS.best)
                 classification = "best";
               else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
@@ -104,14 +139,18 @@ export default function Home() {
                 classification = "inaccuracy";
               else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
                 classification = "mistake";
-
-              console.log(
-                `classification: ${classification} (probability loss: ${(probLoss * 100).toFixed(1)}%)`,
-              );
-              setMoveClassification(classification);
             }
 
-            prevEvalRef.current = currentEvalPawnUnits;
+            setMoveHistory((prev) => {
+              const updated = [...prev];
+              if (updated[currentIdx]) {
+                updated[currentIdx].classification = classification;
+                updated[currentIdx].evalPawnUnits = currentEvalPawnUnits;
+              }
+              return updated;
+            });
+
+            setMoveClassification(classification);
           }
           break;
         default:
@@ -120,9 +159,8 @@ export default function Home() {
     };
 
     return () => workerRef.current?.terminate();
-  }, []);
+  }, [moveHistory]);
 
-  // custom pieces & move evaluation UI
   useEffect(() => {
     function run() {
       const pieceTypes = [
@@ -143,8 +181,9 @@ export default function Home() {
       const finished = pieceTypes.reduce(
         (acc, piece) => ({
           ...acc,
-          [piece]: (props) => {
-            const currentColor = COLORING[moveClassification] || "#72AE50";
+          [piece]: (props: any) => {
+            const currentColor =
+              COLORING[moveClassification || "best"] || "#72AE50";
             const isLastMoved = props?.square === lastMoved;
 
             return (
@@ -153,7 +192,7 @@ export default function Home() {
                   isLastMoved ? { backgroundColor: `${currentColor}BF` } : {}
                 }
               >
-                {isLastMoved && (
+                {isLastMoved && moveClassification && (
                   <div
                     style={{ backgroundColor: currentColor }}
                     className="absolute -top-5 -right-5 size-10 z-100 rounded-full flex items-center justify-center"
@@ -190,21 +229,38 @@ export default function Home() {
       switch (event.key) {
         case "ArrowLeft":
           if (moveIndex.current <= 0) return;
+
           game.undo();
           moveIndex.current--;
-          setLastMoved(moveHistory[moveIndex.current]);
+
+          if (moveIndex.current === 0) {
+            setLastMoved(null);
+            setMoveClassification(null);
+          } else {
+            const prevMove = moveHistory[moveIndex.current - 1];
+            setLastMoved(prevMove.to);
+            setMoveClassification(prevMove.classification);
+          }
+
           setCurrentFen(game.fen());
           break;
+
         case "ArrowRight":
           if (moveIndex.current >= moveHistory.length) return;
 
-          const moveResult = game.move(moveHistory[moveIndex.current]);
+          const nextMoveData = moveHistory[moveIndex.current];
+          const moveResult = game.move(nextMoveData.san);
 
           if (moveResult) {
-            setLastMoved(moveResult.to);
             moveIndex.current++;
+            setLastMoved(moveResult.to);
             setCurrentFen(game.fen());
-            triggerEngine(game.fen());
+
+            if (nextMoveData.evalPawnUnits !== null) {
+              setMoveClassification(nextMoveData.classification);
+            } else {
+              triggerEngine(game.fen());
+            }
           }
           break;
         default:
@@ -221,7 +277,7 @@ export default function Home() {
       ...defaultPieces,
       ...pieces,
     },
-    position: game.fen(),
+    position: currentFen,
     lightSquareStyle: {
       backgroundColor: "#eeebe1",
     },
