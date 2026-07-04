@@ -10,7 +10,7 @@ if (typeof window !== "undefined") {
     if (line.startsWith("bestmove")) {
       const move = line.split(" ")[1];
       postMessage({ type: "BEST_MOVE", move, fen: currentFen });
-    } else if (line.startsWith("info depth 12")) {
+    } else if (line.startsWith("info depth 17")) {
       const parts = line.split(" ");
       const scoreIndex = parts.indexOf("score");
 
