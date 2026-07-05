@@ -8,6 +8,7 @@ import { openingBook, findOpening } from "@chess-openings/eco.json";
 import { useParams } from "next/navigation";
 import { GameStorage, SavedGame } from "@/lib/storage";
 import Link from "next/link";
+import { getCoachFeedback } from "@/lib/coach";
 
 const CLASSIFICATION_LIMITS = {
   best: 0,
@@ -112,6 +113,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
     "white",
   );
+  const [coachFeedback, setCoachFeedback] = useState("");
   const ranBefore = useRef(false);
 
   const [pieces, setPieces] = useState({});
@@ -128,6 +130,17 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
   });
 
   const [playerAccuracy, setPlayerAccuracy] = useState({ white: 0, black: 0 });
+
+  useEffect(() => {
+    function run() {
+      if (!moveClassification) {
+        setCoachFeedback("");
+        return;
+      }
+      setCoachFeedback(getCoachFeedback(moveClassification));
+    }
+    run();
+  }, [moveClassification, lastMoved]);
 
   const getWinProbability = (v: number): number => {
     return 1 / (1 + Math.exp(-0.6436 * v));
@@ -649,7 +662,45 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
       <div className="h-full aspect-square shadow-sm rounded-md overflow-clip">
         <Chessboard options={chessboardOptions} />
       </div>
-      <div className="h-full flex-1 flex flex-col gap-8 items-center justify-center bg-neutral-200 rounded-md shadow-sm">
+      <div className="h-full flex-1 flex flex-col gap-8 items-center justify-center bg-neutral-200 rounded-md shadow-sm px-8">
+        <div className="flex gap-2 h-24 w-full">
+          <Image
+            src={"/gotham.png"}
+            alt="GothamChess"
+            width={384}
+            height={384}
+            className="size-24"
+          />
+          <div className="flex flex-1">
+            <svg
+              className="bot-speech-content-tip translate-y-[200%]"
+              xmlns="http://www.w3.org/2000/svg"
+              width="15"
+              height="22"
+              viewBox="0 0 15 22"
+              fill="white"
+            >
+              <path
+                className="bot-speech-content-tip-path"
+                d="M0 14C8.4 14 12.8333 4.66667 15 0V22C15 22 3.5 22 0 14Z"
+              ></path>
+            </svg>
+            <div className="h-full flex-1 flex gap-2 bg-white rounded-xl p-4">
+              {moveClassification && (
+                <>
+                  <Image
+                    src={`/move-icons/${moveClassification}.svg`}
+                    alt={moveClassification ?? ""}
+                    width={150}
+                    height={150}
+                    className="size-8 xl:block hidden"
+                  />
+                  <h1>{coachFeedback}</h1>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
         <h2 className="text-sm">Player Accuracy</h2>
         <div className="flex gap-8">
           <div className="rounded-md shadow-sm bg-white py-2 w-20 text-center">
