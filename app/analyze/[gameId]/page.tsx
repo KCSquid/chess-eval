@@ -35,7 +35,7 @@ interface MoveMetaData {
   to: string;
   classification: string;
   evalPawnUnits: number | null;
-  bestMove: string;
+  bestMove: { formatted: string; raw: string };
   accuracy: number;
   openingName?: string;
   beforeEval?: number;
@@ -108,7 +108,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
     from: "",
     to: "",
   });
-  const [bestMove, setBestMove] = useState("...");
+  const [bestMove, setBestMove] = useState({ formatted: "...", raw: "" });
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
     "white",
   );
@@ -190,7 +190,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
         classification: "best",
         evalPawnUnits: null,
         accuracy: 100,
-        bestMove: "...",
+        bestMove: { formatted: "...", raw: "" },
       }));
 
       tempGame.reset();
@@ -222,10 +222,14 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
         const evaluation: {
           score: number | null;
           scoreType: string;
-          bestMove: string;
+          bestMove: { formatted: string; raw: string };
         } = await new Promise((resolve) => {
           if (!workerRef.current)
-            return resolve({ score: 0, scoreType: "cp", bestMove: "..." });
+            return resolve({
+              score: 0,
+              scoreType: "cp",
+              bestMove: { formatted: "...", raw: "" },
+            });
 
           let evaluationScore: number | null = null;
           let scoreType = "cp";
@@ -248,7 +252,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
               resolve({
                 score: evaluationScore ?? 0,
                 scoreType,
-                bestMove,
+                bestMove: { formatted: "...", raw: bestMove },
               });
             }
           };
@@ -264,10 +268,10 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
         if (evaluation.scoreType === "cp" && evaluation.score !== null) {
           const positionEval = evaluation.score / 100;
 
-          structuredHistory[i].bestMove = convertUciToSan(
-            prevFen,
-            evaluation.bestMove,
-          );
+          structuredHistory[i].bestMove = {
+            formatted: convertUciToSan(prevFen, evaluation.bestMove.raw),
+            raw: evaluation.bestMove.raw,
+          };
 
           structuredHistory[i].beforeEval = positionEval;
         }
@@ -304,7 +308,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
         let classification = "blunder";
         if (
           probLoss <= CLASSIFICATION_LIMITS.best ||
-          structuredHistory[i].bestMove === structuredHistory[i].san
+          structuredHistory[i].bestMove.formatted === structuredHistory[i].san
         )
           classification = "best";
         else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
@@ -428,7 +432,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
             setLastMoved({ from: "", to: "" });
             setMoveClassification(null);
             setWinProbability(0.5);
-            setBestMove("...");
+            setBestMove({ formatted: "...", raw: "" });
           } else {
             const prevMove = moveHistory[moveIndex.current - 1];
             setLastMoved({
@@ -437,7 +441,10 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
             });
 
             setMoveClassification(prevMove.classification);
-            setBestMove(prevMove.bestMove);
+            setBestMove({
+              formatted: prevMove.bestMove.formatted,
+              raw: prevMove.bestMove.raw,
+            });
 
             if (prevMove.evalPawnUnits !== null) {
               const activeColor = game.fen().split(" ")[1];
@@ -466,7 +473,10 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
             setLastMoved({ to: moveResult.to, from: moveResult.from });
             setCurrentFen(game.fen());
             setMoveClassification(nextMoveData.classification);
-            setBestMove(nextMoveData.bestMove);
+            setBestMove({
+              formatted: nextMoveData.bestMove.formatted,
+              raw: nextMoveData.bestMove.raw,
+            });
 
             if (nextMoveData.evalPawnUnits !== null) {
               const activeColor = game.fen().split(" ")[1];
@@ -532,6 +542,32 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
     });
   }
 
+  const [arrows, setArrows] = useState([
+    {
+      startSquare: "e2",
+      endSquare: "e4",
+      color: "green",
+    },
+  ]);
+
+  useEffect(() => {
+    function run() {
+      if (moveClassification === "best" || moveClassification === "book") {
+        setArrows([]);
+        return;
+      }
+      setArrows([
+        {
+          startSquare: bestMove.raw.substring(0, 2) ?? "",
+          endSquare: bestMove.raw.substring(2) ?? "",
+          color: "green",
+        },
+      ]);
+    }
+
+    run();
+  }, [bestMove, moveClassification]);
+
   const chessboardOptions = {
     pieces: {
       ...defaultPieces,
@@ -545,6 +581,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
     onSquareClick,
     onSquareRightClick,
     squareStyles,
+    arrows,
   };
 
   if (isAnalyzing) {
@@ -637,7 +674,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
             />
           </div>
           <div>
-            <h1 className="font-semibold text-2xl">{bestMove}</h1>
+            <h1 className="font-semibold text-2xl">{bestMove.formatted}</h1>
             <h2 className="text-sm">was the best move</h2>
           </div>
         </div>
