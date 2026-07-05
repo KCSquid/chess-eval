@@ -24,7 +24,7 @@ const COLORING: Record<string, string> = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 13;
+const DEPTH = 17;
 
 interface MoveMetaData {
   san: string;
@@ -56,6 +56,8 @@ export default function Home() {
     current: 0,
     total: 0,
   });
+
+  const [playerAccuracy, setPlayerAccuracy] = useState({ white: 0, black: 0 });
 
   const getWinProbability = (v: number): number => {
     return 1 / (1 + Math.exp(-0.6436 * v));
@@ -118,6 +120,8 @@ export default function Home() {
       let isBookPhase = true;
 
       for (let i = 0; i < totalMoves; i++) {
+        const prevFen = tempGame.fen();
+
         const move = tempGame.move(structuredHistory[i].san);
         if (move) {
           structuredHistory[i].to = move.to;
@@ -174,73 +178,63 @@ export default function Home() {
           workerRef.current.addEventListener("message", handleMessage);
           workerRef.current.postMessage({
             type: "START_ANALYSIS",
-            fen: currentFenPosition,
+            fen: prevFen,
             depth: DEPTH,
           });
         });
 
-        if (evaluation.scoreType === "cp" && evaluation.score) {
-          const currentEvalPawnUnits = evaluation.score / 100;
-          structuredHistory[i].evalPawnUnits = currentEvalPawnUnits;
-
-          const activeColor = currentFenPosition.split(" ")[1];
-          const isWhiteJustMoved = activeColor === "b";
-          const playerEval = isWhiteJustMoved
-            ? currentEvalPawnUnits
-            : -currentEvalPawnUnits;
-          const currentWinProb = getWinProbability(playerEval);
-
-          let prevEvalPawnUnits: number | null = null;
-          if (i > 0) {
-            for (let j = i - 1; j >= 0; j--) {
-              if (structuredHistory[j]?.evalPawnUnits !== null) {
-                prevEvalPawnUnits = structuredHistory[j].evalPawnUnits;
-                break;
-              }
-            }
-          }
-
-          if (!currentOpening) {
-            let classification = "best";
-
-            if (prevEvalPawnUnits !== null) {
-              const prevPlayerEval = isWhiteJustMoved
-                ? prevEvalPawnUnits
-                : -prevEvalPawnUnits;
-              const prevWinProb = getWinProbability(prevPlayerEval);
-              const probLoss = prevWinProb - currentWinProb;
-
-              const moveAccuracy = calculateMoveAccuracy(
-                prevWinProb,
-                currentWinProb,
-              );
-              structuredHistory[i].accuracy = moveAccuracy;
-
-              classification = "blunder";
-              if (probLoss <= CLASSIFICATION_LIMITS.best)
-                classification = "best";
-              else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
-                classification = "excellent";
-              else if (probLoss <= CLASSIFICATION_LIMITS.good)
-                classification = "good";
-              else if (probLoss <= CLASSIFICATION_LIMITS.inaccuracy)
-                classification = "inaccuracy";
-              else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
-                classification = "mistake";
-            } else {
-              structuredHistory[i].accuracy = 100;
-            }
-
-            structuredHistory[i].classification = classification;
-          }
+        if (evaluation.scoreType === "cp" && evaluation.score !== null) {
+          const positionEval = evaluation.score / 100;
 
           structuredHistory[i].bestMove = convertUciToSan(
-            currentFenPosition,
+            prevFen,
             evaluation.bestMove,
           );
+
+          (structuredHistory[i] as any).beforeEval = positionEval;
         }
 
         setAnalysisProgress((prev) => ({ ...prev, current: i + 1 }));
+      }
+
+      for (let i = 0; i < totalMoves; i++) {
+        const currentMove = structuredHistory[i];
+        const nextMove = structuredHistory[i + 1];
+
+        const evalBefore = (currentMove as any).beforeEval ?? 0;
+        const evalAfter = nextMove
+          ? ((nextMove as any).beforeEval ?? evalBefore)
+          : evalBefore;
+
+        currentMove.evalPawnUnits = evalAfter;
+
+        if (currentMove.classification === "book") continue;
+
+        const isWhiteMove = i % 2 === 0;
+        const playerEvalBefore = isWhiteMove ? evalBefore : -evalBefore;
+        const playerEvalAfter = isWhiteMove ? evalAfter : -evalAfter;
+
+        const prevWinProb = getWinProbability(playerEvalBefore);
+        const currentWinProb = getWinProbability(playerEvalAfter);
+        const probLoss = prevWinProb - currentWinProb;
+
+        currentMove.accuracy = calculateMoveAccuracy(
+          prevWinProb,
+          currentWinProb,
+        );
+
+        let classification = "blunder";
+        if (probLoss <= CLASSIFICATION_LIMITS.best) classification = "best";
+        else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
+          classification = "excellent";
+        else if (probLoss <= CLASSIFICATION_LIMITS.good)
+          classification = "good";
+        else if (probLoss <= CLASSIFICATION_LIMITS.inaccuracy)
+          classification = "inaccuracy";
+        else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
+          classification = "mistake";
+
+        currentMove.classification = classification;
       }
 
       const whiteMoves = structuredHistory.filter((_, idx) => idx % 2 === 0);
@@ -258,7 +252,7 @@ export default function Home() {
       const whiteAccuracy = calculateGameAccuracy(whiteMoves);
       const blackAccuracy = calculateGameAccuracy(blackMoves);
 
-      console.log(whiteAccuracy, blackAccuracy);
+      setPlayerAccuracy({ white: whiteAccuracy, black: blackAccuracy });
 
       setMoveHistory(structuredHistory);
       game.reset();
@@ -431,15 +425,15 @@ export default function Home() {
       : 0;
 
     return (
-      <div className="w-screen h-screen flex flex-col items-center justify-center bg-stone-200/50 text-black font-sans gap-4">
-        <p className="text-stone-700 text-sm">Stockfish is analysing...</p>
+      <div className="w-screen h-screen flex flex-col items-center justify-center bg-stone-200/50 text-[#383532] font-sans gap-4">
+        <p className="text-sm">Stockfish is analysing...</p>
         <div className="w-64 bg-stone-300 h-2 rounded-full overflow-hidden">
           <div
             className="bg-[#7691a3] h-full transition-all duration-300"
             style={{ width: `${percentage}%` }}
           />
         </div>
-        <p className="text-stone-700 text-sm">
+        <p className="text-sm">
           {analysisProgress.current} / {analysisProgress.total} ({percentage}
           %) — Depth {DEPTH}
         </p>
@@ -448,7 +442,7 @@ export default function Home() {
   }
 
   return (
-    <div className="font-sans w-screen h-screen flex p-16 gap-4 bg-stone-200/50">
+    <div className="font-sans text-[#383532] w-screen h-screen flex p-16 gap-4 bg-stone-200/50">
       <div className="h-full w-10 bg-white shadow-sm rounded-md flex items-end overflow-clip">
         <div
           className="w-full bg-[#383532] transition-[height] duration-500 ease-out"
@@ -458,7 +452,21 @@ export default function Home() {
       <div className="h-full aspect-square shadow-sm rounded-md overflow-clip">
         <Chessboard options={chessboardOptions} />
       </div>
-      <div className="h-full flex-1 flex flex-col items-center justify-center bg-neutral-200 rounded-md shadow-sm">
+      <div className="h-full flex-1 flex flex-col gap-8 items-center justify-center bg-neutral-200 rounded-md shadow-sm">
+        <h2 className="text-sm">Player Accuracy</h2>
+        <div className="flex gap-8">
+          <div className="rounded-md shadow-sm bg-white py-2 w-20 text-center">
+            <h1 className="font-semibold text-2xl">
+              {playerAccuracy.white.toFixed(1)}
+            </h1>
+          </div>
+          <div className="rounded-md shadow-sm bg-[#383532] py-2 w-20 text-center">
+            <h1 className="font-semibold text-2xl text-white">
+              {playerAccuracy.black.toFixed(1)}
+            </h1>
+          </div>
+        </div>
+
         <div className="flex gap-4 items-center">
           <div className="size-11">
             <Image
