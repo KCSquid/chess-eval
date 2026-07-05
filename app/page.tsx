@@ -22,13 +22,15 @@ const COLORING = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 17;
+const DEPTH = 13;
 
 interface MoveMetaData {
   san: string;
   to: string;
   classification: string;
   evalPawnUnits: number | null;
+  bestMove: string;
+  accuracy: number;
 }
 
 export default function Home() {
@@ -37,6 +39,7 @@ export default function Home() {
   const [moveHistory, setMoveHistory] = useState<MoveMetaData[]>([]);
   const moveIndex = useRef(0);
   const [lastMoved, setLastMoved] = useState<string | null>(null);
+  const [bestMove, setBestMove] = useState("...");
 
   const [pieces, setPieces] = useState({});
   const workerRef = useRef<Worker | null>(null);
@@ -53,6 +56,14 @@ export default function Home() {
 
   const getWinProbability = (v: number): number => {
     return 1 / (1 + Math.exp(-0.6436 * v));
+  };
+
+  const calculateMoveAccuracy = (
+    prevWinProb: number,
+    currentWinProb: number,
+  ): number => {
+    const probLoss = Math.max(0, prevWinProb - currentWinProb);
+    return 100 * Math.exp(-4.5 * probLoss);
   };
 
   useEffect(() => {
@@ -91,10 +102,29 @@ export default function Home() {
         const evaluation: any = await new Promise((resolve) => {
           if (!workerRef.current) return resolve({ score: 0, scoreType: "cp" });
 
+          let evaluationScore: number | null = null;
+          let scoreType = "cp";
+          let bestMove = "";
+          let completed = 0;
+
           const handleMessage = (event: MessageEvent) => {
             if (event.data.type === "EVAL") {
+              evaluationScore = event.data.score;
+              scoreType = event.data.scoreType;
+              completed++;
+            }
+            if (event.data.type === "BEST_MOVE") {
+              bestMove = event.data.move;
+              completed++;
+            }
+
+            if (completed === 2) {
               workerRef.current?.removeEventListener("message", handleMessage);
-              resolve(event.data);
+              resolve({
+                score: evaluationScore ?? 0,
+                scoreType,
+                bestMove,
+              });
             }
           };
 
@@ -136,6 +166,12 @@ export default function Home() {
             const prevWinProb = getWinProbability(prevPlayerEval);
             const probLoss = prevWinProb - currentWinProb;
 
+            const moveAccuracy = calculateMoveAccuracy(
+              prevWinProb,
+              currentWinProb,
+            );
+            structuredHistory[i].accuracy = moveAccuracy;
+
             classification = "blunder";
             if (probLoss <= CLASSIFICATION_LIMITS.best) classification = "best";
             else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
@@ -146,13 +182,33 @@ export default function Home() {
               classification = "inaccuracy";
             else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
               classification = "mistake";
+          } else {
+            structuredHistory[i].accuracy = 100;
           }
 
           structuredHistory[i].classification = classification;
+          structuredHistory[i].bestMove = evaluation.bestMove;
         }
 
         setAnalysisProgress((prev) => ({ ...prev, current: i + 1 }));
       }
+
+      const whiteMoves = structuredHistory.filter((_, idx) => idx % 2 === 0);
+      const blackMoves = structuredHistory.filter((_, idx) => idx % 2 !== 0);
+
+      const calculateGameAccuracy = (moves: any[]) => {
+        if (moves.length === 0) return 100;
+        const sumOfSquares = moves.reduce(
+          (sum, m) => sum + Math.pow(m.accuracy, 2),
+          0,
+        );
+        return Math.sqrt(sumOfSquares / moves.length);
+      };
+
+      const whiteAccuracy = calculateGameAccuracy(whiteMoves);
+      const blackAccuracy = calculateGameAccuracy(blackMoves);
+
+      console.log(whiteAccuracy, blackAccuracy)
 
       setMoveHistory(structuredHistory);
       game.reset();
@@ -249,10 +305,12 @@ export default function Home() {
             setLastMoved(null);
             setMoveClassification(null);
             setWinProbability(0.5);
+            setBestMove("...");
           } else {
             const prevMove = moveHistory[moveIndex.current - 1];
             setLastMoved(prevMove.to);
             setMoveClassification(prevMove.classification);
+            setBestMove(prevMove.bestMove);
 
             if (prevMove.evalPawnUnits !== null) {
               const activeColor = game.fen().split(" ")[1];
@@ -281,6 +339,7 @@ export default function Home() {
             setLastMoved(moveResult.to);
             setCurrentFen(game.fen());
             setMoveClassification(nextMoveData.classification);
+            setBestMove(nextMoveData.bestMove);
 
             if (nextMoveData.evalPawnUnits !== null) {
               const activeColor = game.fen().split(" ")[1];
@@ -348,6 +407,22 @@ export default function Home() {
       </div>
       <div className="h-full aspect-square shadow-sm rounded-md overflow-clip">
         <Chessboard options={chessboardOptions} />
+      </div>
+      <div className="h-full flex-1 flex flex-col items-center justify-center bg-neutral-200 rounded-md shadow-sm">
+        <div className="flex gap-4 items-center">
+          <div className="size-11">
+            <Image
+              src={`/move-icons/best.svg`}
+              alt="best move symbol"
+              width={150}
+              height={150}
+            />
+          </div>
+          <div>
+            <h1 className="font-semibold text-2xl">{bestMove}</h1>
+            <h2 className="text-sm">is the best move</h2>
+          </div>
+        </div>
       </div>
     </div>
   );
