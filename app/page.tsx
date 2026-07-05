@@ -24,7 +24,7 @@ const COLORING: Record<string, string> = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 17;
+const DEPTH = 13;
 
 interface MoveMetaData {
   san: string;
@@ -44,6 +44,9 @@ export default function Home() {
   const moveIndex = useRef(0);
   const [lastMoved, setLastMoved] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState("...");
+  const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
+    "white",
+  );
 
   const [pieces, setPieces] = useState({});
   const workerRef = useRef<Worker | null>(null);
@@ -340,7 +343,7 @@ export default function Home() {
     if (isAnalyzing) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      if (["ArrowLeft", "ArrowRight", "x"].includes(event.key)) {
         event.preventDefault();
       }
 
@@ -404,6 +407,11 @@ export default function Home() {
             }
           }
           break;
+
+        case "x":
+          setBoardOrientation((prev) => (prev === "white" ? "black" : "white"));
+          break;
+
         default:
           break;
       }
@@ -421,7 +429,7 @@ export default function Home() {
     position: currentFen,
     lightSquareStyle: { backgroundColor: "#eeebe1" },
     darkSquareStyle: { backgroundColor: "#7691a3" },
-    boardOrientation: "black" as const,
+    boardOrientation: boardOrientation,
     animationDurationInMs: 225,
   };
 
@@ -479,7 +487,9 @@ export default function Home() {
 
   return (
     <div className="font-sans text-[#383532] w-screen h-screen flex p-16 gap-4 bg-stone-200/50">
-      <div className="h-full w-10 bg-white shadow-sm rounded-md flex items-end overflow-clip">
+      <div
+        className={`h-full w-10 bg-white shadow-sm rounded-md flex items-end overflow-clip ${boardOrientation === "white" && "-scale-100"}`}
+      >
         <div
           className="w-full bg-[#383532] transition-[height] duration-500 ease-out"
           style={{ height: `${winProbability * 100}%` }}
