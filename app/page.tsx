@@ -225,7 +225,11 @@ export default function Home() {
         );
 
         let classification = "blunder";
-        if (probLoss <= CLASSIFICATION_LIMITS.best) classification = "best";
+        if (
+          probLoss <= CLASSIFICATION_LIMITS.best ||
+          structuredHistory[i].bestMove === structuredHistory[i].san
+        )
+          classification = "best";
         else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
           classification = "excellent";
         else if (probLoss <= CLASSIFICATION_LIMITS.good)
@@ -263,6 +267,7 @@ export default function Home() {
     loadGame();
 
     return () => workerRef.current?.terminate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
