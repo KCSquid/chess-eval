@@ -41,6 +41,7 @@ export default function Home() {
   const [moveClassification, setMoveClassification] = useState<string | null>(
     null,
   );
+  const [winProbability, setWinProbability] = useState(0.5);
 
   useEffect(() => {
     async function loadGame() {
@@ -81,14 +82,14 @@ export default function Home() {
     });
   };
 
+  const getWinProbability = (v: number): number => {
+    return 1 / (1 + Math.exp(-0.6436 * v));
+  };
+
   useEffect(() => {
     workerRef.current = new Worker(
       new URL("./workers/stockfish.worker.js", import.meta.url),
     );
-
-    const getWinProbability = (v: number): number => {
-      return 1 / (1 + Math.exp(-0.6436 * v));
-    };
 
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
@@ -105,6 +106,9 @@ export default function Home() {
               : -currentEvalPawnUnits;
 
             const currentWinProb = getWinProbability(playerEval);
+            setWinProbability(
+              isWhiteJustMoved ? 1 - currentWinProb : currentWinProb,
+            );
 
             let prevEvalPawnUnits: number | null = null;
             const currentIdx = moveIndex.current - 1;
@@ -236,10 +240,24 @@ export default function Home() {
           if (moveIndex.current === 0) {
             setLastMoved(null);
             setMoveClassification(null);
+            setWinProbability(0.5);
           } else {
             const prevMove = moveHistory[moveIndex.current - 1];
             setLastMoved(prevMove.to);
             setMoveClassification(prevMove.classification);
+
+            if (prevMove.evalPawnUnits !== null) {
+              const activeColor = game.fen().split(" ")[1];
+              const isWhiteJustMoved = activeColor === "b";
+              const playerEval = isWhiteJustMoved
+                ? prevMove.evalPawnUnits
+                : -prevMove.evalPawnUnits;
+
+              const currentWinProb = getWinProbability(playerEval);
+              setWinProbability(
+                isWhiteJustMoved ? 1 - currentWinProb : currentWinProb
+              );
+            }
           }
 
           setCurrentFen(game.fen());
@@ -258,6 +276,17 @@ export default function Home() {
 
             if (nextMoveData.evalPawnUnits !== null) {
               setMoveClassification(nextMoveData.classification);
+
+              const activeColor = game.fen().split(" ")[1];
+              const isWhiteJustMoved = activeColor === "b";
+              const playerEval = isWhiteJustMoved
+                ? nextMoveData.evalPawnUnits
+                : -nextMoveData.evalPawnUnits;
+
+              const currentWinProb = getWinProbability(playerEval);
+              setWinProbability(
+                isWhiteJustMoved ? 1 - currentWinProb : currentWinProb
+              );
             } else {
               triggerEngine(game.fen());
             }
@@ -266,11 +295,11 @@ export default function Home() {
         default:
           break;
       }
-    };
+    }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [moveHistory]);
+  }, [moveHistory, game]);
 
   const chessboardOptions = {
     pieces: {
@@ -288,8 +317,14 @@ export default function Home() {
   };
 
   return (
-    <div className="font-sans w-screen h-screen flex p-16">
-      <div className="h-full aspect-square">
+    <div className="font-sans w-screen h-screen flex p-16 gap-4 bg-stone-200">
+      <div className="h-full w-10 bg-white shadow-sm rounded-md flex items-end overflow-clip">
+        <div
+          className="w-full bg-[#383532] transition-[height] duration-500 ease-out"
+          style={{ height: `${winProbability * 100}%` }}
+        ></div>
+      </div>
+      <div className="h-full aspect-square shadow-sm rounded-md overflow-clip">
         <Chessboard options={chessboardOptions} />
       </div>
     </div>
