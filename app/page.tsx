@@ -4,6 +4,7 @@ import { Chessboard, defaultPieces } from "react-chessboard";
 import { Chess } from "chess.js";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { openingBook, findOpening } from "@chess-openings/eco.json";
 
 const CLASSIFICATION_LIMITS = {
   best: 0,
@@ -13,7 +14,8 @@ const CLASSIFICATION_LIMITS = {
   mistake: 0.2,
 };
 
-const COLORING = {
+const COLORING: Record<string, string> = {
+  book: "#A88865",
   best: "#72AE50",
   excellent: "#6BAC48",
   good: "#89AD70",
@@ -31,6 +33,7 @@ interface MoveMetaData {
   evalPawnUnits: number | null;
   bestMove: string;
   accuracy: number;
+  openingName?: string;
 }
 
 export default function Home() {
@@ -63,8 +66,26 @@ export default function Home() {
     currentWinProb: number,
   ): number => {
     const probLoss = Math.max(0, prevWinProb - currentWinProb);
-    return 100 * Math.exp(-4.5 * probLoss);
+    return 100 * Math.exp(-6 * probLoss);
   };
+
+  function convertUciToSan(fen: string, uciMove: string): string {
+    if (!uciMove || uciMove === "...") return "...";
+
+    try {
+      const tempGame = new Chess(fen);
+
+      const from = uciMove.slice(0, 2);
+      const to = uciMove.slice(2, 4);
+      const promotion = uciMove.length === 5 ? uciMove.charAt(4) : undefined;
+
+      const moveResult = tempGame.move({ from, to, promotion });
+      return moveResult ? moveResult.san : uciMove;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
+      return uciMove;
+    }
+  }
 
   useEffect(() => {
     workerRef.current = new Worker(
@@ -72,6 +93,8 @@ export default function Home() {
     );
 
     async function loadGame() {
+      const openings = await openingBook();
+
       const res = await fetch("/game.pgn");
       const pgn = await res.text();
 
@@ -87,9 +110,12 @@ export default function Home() {
         to: "",
         classification: "best",
         evalPawnUnits: null,
+        accuracy: 100,
+        bestMove: "...",
       }));
 
       tempGame.reset();
+      let isBookPhase = true;
 
       for (let i = 0; i < totalMoves; i++) {
         const move = tempGame.move(structuredHistory[i].san);
@@ -99,8 +125,25 @@ export default function Home() {
 
         const currentFenPosition = tempGame.fen();
 
-        const evaluation: any = await new Promise((resolve) => {
-          if (!workerRef.current) return resolve({ score: 0, scoreType: "cp" });
+        let currentOpening = null;
+        if (isBookPhase) {
+          currentOpening = findOpening(openings, currentFenPosition);
+          if (currentOpening) {
+            structuredHistory[i].classification = "book";
+            structuredHistory[i].accuracy = 100;
+            structuredHistory[i].openingName = currentOpening.name;
+          } else {
+            isBookPhase = false;
+          }
+        }
+
+        const evaluation: {
+          score: number | null;
+          scoreType: string;
+          bestMove: string;
+        } = await new Promise((resolve) => {
+          if (!workerRef.current)
+            return resolve({ score: 0, scoreType: "cp", bestMove: "..." });
 
           let evaluationScore: number | null = null;
           let scoreType = "cp";
@@ -136,7 +179,7 @@ export default function Home() {
           });
         });
 
-        if (evaluation.scoreType === "cp") {
+        if (evaluation.scoreType === "cp" && evaluation.score) {
           const currentEvalPawnUnits = evaluation.score / 100;
           structuredHistory[i].evalPawnUnits = currentEvalPawnUnits;
 
@@ -157,37 +200,44 @@ export default function Home() {
             }
           }
 
-          let classification = "best";
+          if (!currentOpening) {
+            let classification = "best";
 
-          if (prevEvalPawnUnits !== null) {
-            const prevPlayerEval = isWhiteJustMoved
-              ? prevEvalPawnUnits
-              : -prevEvalPawnUnits;
-            const prevWinProb = getWinProbability(prevPlayerEval);
-            const probLoss = prevWinProb - currentWinProb;
+            if (prevEvalPawnUnits !== null) {
+              const prevPlayerEval = isWhiteJustMoved
+                ? prevEvalPawnUnits
+                : -prevEvalPawnUnits;
+              const prevWinProb = getWinProbability(prevPlayerEval);
+              const probLoss = prevWinProb - currentWinProb;
 
-            const moveAccuracy = calculateMoveAccuracy(
-              prevWinProb,
-              currentWinProb,
-            );
-            structuredHistory[i].accuracy = moveAccuracy;
+              const moveAccuracy = calculateMoveAccuracy(
+                prevWinProb,
+                currentWinProb,
+              );
+              structuredHistory[i].accuracy = moveAccuracy;
 
-            classification = "blunder";
-            if (probLoss <= CLASSIFICATION_LIMITS.best) classification = "best";
-            else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
-              classification = "excellent";
-            else if (probLoss <= CLASSIFICATION_LIMITS.good)
-              classification = "good";
-            else if (probLoss <= CLASSIFICATION_LIMITS.inaccuracy)
-              classification = "inaccuracy";
-            else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
-              classification = "mistake";
-          } else {
-            structuredHistory[i].accuracy = 100;
+              classification = "blunder";
+              if (probLoss <= CLASSIFICATION_LIMITS.best)
+                classification = "best";
+              else if (probLoss <= CLASSIFICATION_LIMITS.excellent)
+                classification = "excellent";
+              else if (probLoss <= CLASSIFICATION_LIMITS.good)
+                classification = "good";
+              else if (probLoss <= CLASSIFICATION_LIMITS.inaccuracy)
+                classification = "inaccuracy";
+              else if (probLoss <= CLASSIFICATION_LIMITS.mistake)
+                classification = "mistake";
+            } else {
+              structuredHistory[i].accuracy = 100;
+            }
+
+            structuredHistory[i].classification = classification;
           }
 
-          structuredHistory[i].classification = classification;
-          structuredHistory[i].bestMove = evaluation.bestMove;
+          structuredHistory[i].bestMove = convertUciToSan(
+            currentFenPosition,
+            evaluation.bestMove,
+          );
         }
 
         setAnalysisProgress((prev) => ({ ...prev, current: i + 1 }));
@@ -196,7 +246,7 @@ export default function Home() {
       const whiteMoves = structuredHistory.filter((_, idx) => idx % 2 === 0);
       const blackMoves = structuredHistory.filter((_, idx) => idx % 2 !== 0);
 
-      const calculateGameAccuracy = (moves: any[]) => {
+      const calculateGameAccuracy = (moves: MoveMetaData[]) => {
         if (moves.length === 0) return 100;
         const sumOfSquares = moves.reduce(
           (sum, m) => sum + Math.pow(m.accuracy, 2),
@@ -208,7 +258,7 @@ export default function Home() {
       const whiteAccuracy = calculateGameAccuracy(whiteMoves);
       const blackAccuracy = calculateGameAccuracy(blackMoves);
 
-      console.log(whiteAccuracy, blackAccuracy)
+      console.log(whiteAccuracy, blackAccuracy);
 
       setMoveHistory(structuredHistory);
       game.reset();
@@ -242,7 +292,7 @@ export default function Home() {
       const finished = pieceTypes.reduce(
         (acc, piece) => ({
           ...acc,
-          [piece]: (props: any) => {
+          [piece]: (props: { square: string }) => {
             const currentColor =
               COLORING[moveClassification || "best"] || "#72AE50";
             const isLastMoved = props?.square === lastMoved;
@@ -420,7 +470,7 @@ export default function Home() {
           </div>
           <div>
             <h1 className="font-semibold text-2xl">{bestMove}</h1>
-            <h2 className="text-sm">is the best move</h2>
+            <h2 className="text-sm">was the best move</h2>
           </div>
         </div>
       </div>
