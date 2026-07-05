@@ -1,5 +1,6 @@
 let engine;
 let currentFen;
+let depth;
 
 if (typeof window !== "undefined") {
   engine = new Worker("/stockfish.js");
@@ -10,7 +11,7 @@ if (typeof window !== "undefined") {
     if (line.startsWith("bestmove")) {
       const move = line.split(" ")[1];
       postMessage({ type: "BEST_MOVE", move, fen: currentFen });
-    } else if (line.startsWith("info depth 17")) {
+    } else if (line.startsWith(`info depth ${depth}`)) {
       const parts = line.split(" ");
       const scoreIndex = parts.indexOf("score");
 
@@ -37,9 +38,10 @@ if (typeof window !== "undefined") {
 onmessage = (event) => {
   if (event.data.type === "START_ANALYSIS") {
     currentFen = event.data.fen;
+    depth = event.data.depth || 12;
     engine.postMessage("uci");
     engine.postMessage("ucinewgame");
     engine.postMessage(`position fen ${currentFen}`);
-    engine.postMessage(`go depth ${event.data.depth || 12}`);
+    engine.postMessage(`go depth ${depth}`);
   }
 };
