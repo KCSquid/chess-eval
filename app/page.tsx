@@ -9,11 +9,12 @@ import { useState } from "react";
 export default function Home() {
   const router = useRouter();
   const [localPgn, setLocalPgn] = useState("");
+  const [username, setUsername] = useState("");
 
   const handleAnalyze = () => {
     if (!localPgn.trim()) return;
     const gameId = GameStorage.save(localPgn);
-    router.push(`/analyze/${gameId}`);
+    router.push(`/analyze/${gameId}${username && `?player=${username}`}`);
   };
 
   return (
@@ -49,6 +50,8 @@ export default function Home() {
           <h2 className="font-semibold">Username</h2>
           <input
             type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             className="w-full outline-none border border-stone-300 bg-stone-200 rounded-sm p-2 px-2.5 focus:border-[#7691a3]/50 focus:bg-[#7691a3]/10 transition-colors"
           />
         </div>

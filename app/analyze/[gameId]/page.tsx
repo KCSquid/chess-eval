@@ -5,7 +5,7 @@ import { Chess } from "chess.js";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { openingBook, findOpening } from "@chess-openings/eco.json";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { GameStorage, SavedGame } from "@/lib/storage";
 import Link from "next/link";
 import { getCoachFeedback } from "@/lib/coach";
@@ -28,7 +28,7 @@ const COLORING: Record<string, string> = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 17;
+const DEPTH = 8;
 
 interface MoveMetaData {
   san: string;
@@ -47,6 +47,9 @@ export default function AnalysisPage() {
   const [game, setGame] = useState<SavedGame | null>(null);
   const [loading, setLoading] = useState(true);
   const [invalidPgn, setInvalidPgn] = useState(false);
+
+  const searchParams = useSearchParams();
+  const player = searchParams.get("player");
 
   useEffect(() => {
     function run() {
@@ -97,10 +100,10 @@ export default function AnalysisPage() {
     );
   }
 
-  return <ChessAnalyzer pgn={game.pgn} />;
+  return <ChessAnalyzer pgn={game.pgn} player={player ?? ""} />;
 }
 
-function ChessAnalyzer({ pgn }: { pgn: string }) {
+function ChessAnalyzer({ pgn, player }: { pgn: string; player: string }) {
   const [game] = useState(() => new Chess());
   const [currentFen, setCurrentFen] = useState(game.fen());
   const [moveHistory, setMoveHistory] = useState<MoveMetaData[]>([]);
@@ -113,7 +116,9 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
     "white",
   );
+  const [players, setPlayers] = useState({ white: "", black: "" });
   const [coachFeedback, setCoachFeedback] = useState("");
+  const [opening, setOpening] = useState("");
   const ranBefore = useRef(false);
 
   const [pieces, setPieces] = useState({});
@@ -200,6 +205,13 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
 
       const tempGame = new Chess();
       tempGame.loadPgn(pgn);
+
+      const white = tempGame.getHeaders()["White"];
+      const black = tempGame.getHeaders()["Black"];
+      if (black === player) setBoardOrientation("black");
+
+      setPlayers({ white, black });
+
       const historySan = tempGame.history();
       const totalMoves = historySan.length;
 
@@ -236,6 +248,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
             structuredHistory[i].classification = "book";
             structuredHistory[i].accuracy = 100;
             structuredHistory[i].openingName = currentOpening.name;
+            setOpening(currentOpening.name);
           } else {
             isBookPhase = false;
           }
@@ -690,7 +703,12 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
       <div className="h-full aspect-square shadow-sm rounded-md overflow-clip">
         <Chessboard options={chessboardOptions} />
       </div>
-      <div className="h-full flex-1 flex flex-col gap-8 items-center justify-center bg-neutral-200 rounded-md shadow-sm px-8">
+      <div className="relative h-full flex-1 flex flex-col gap-8 items-center justify-center bg-neutral-200 rounded-md shadow-sm px-8">
+        <div className="absolute top-0 left-0 text-xs p-4 text-neutral-600 flex justify-between w-full">
+          <h1>Players: {players.white} (w) vs. {players.black} (b)</h1>
+          <h1>Opening: {opening}</h1>
+        </div>
+
         <div className="flex gap-2 h-24 w-full">
           <Image
             src={"/gotham.png"}
