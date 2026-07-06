@@ -59,7 +59,10 @@ const CLASSIFICATION_VARIATIONS: Record<string, string[]> = {
   ],
 };
 
-export function getCoachFeedback(classification: string): string {
+export function getCoachFeedback(
+  classification: string,
+  self: boolean,
+): string {
   const variations = CLASSIFICATION_VARIATIONS[classification];
   if (!variations) return "";
 
@@ -68,5 +71,8 @@ export function getCoachFeedback(classification: string): string {
   const randomVariation =
     variations[Math.floor(Math.random() * variations.length)];
 
-  return `${randomPrefix} ${randomVariation}.`;
+  const merged = `${randomPrefix} ${randomVariation}.`;
+
+  if (self) return merged;
+  return merged.replace(/you/g, "they");
 }

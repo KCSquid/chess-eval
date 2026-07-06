@@ -28,7 +28,7 @@ const COLORING: Record<string, string> = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 13;
+const DEPTH = 17;
 
 interface MoveMetaData {
   san: string;
@@ -137,21 +137,34 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
         setCoachFeedback("");
         return;
       }
-      setCoachFeedback(getCoachFeedback(moveClassification));
+      setCoachFeedback(
+        getCoachFeedback(
+          moveClassification,
+          boardOrientation[0] !== game.turn(),
+        ),
+      );
     }
     run();
-  }, [moveClassification, lastMoved]);
+  }, [moveClassification, lastMoved, game, boardOrientation]);
 
   const getWinProbability = (v: number): number => {
-    return 1 / (1 + Math.exp(-0.6436 * v));
+    const centipawns = v * 100;
+    const result = 50 + 50 * Math.tanh(0.00368208 * centipawns);
+    console.log(result / 100);
+    return result / 100;
   };
 
   const calculateMoveAccuracy = (
     prevWinProb: number,
     currentWinProb: number,
   ): number => {
-    const probLoss = Math.max(0, prevWinProb - currentWinProb);
-    return 100 * Math.exp(-6 * probLoss);
+    const winPercentBefore = prevWinProb * 100;
+    const winPercentAfter = currentWinProb * 100;
+    const probLoss = Math.max(0, winPercentBefore - winPercentAfter);
+
+    const accuracy = 103.1668 * Math.exp(-0.04354 * probLoss) - 3.1669;
+
+    return Math.max(0, Math.min(100, accuracy));
   };
 
   function convertUciToSan(fen: string, uciMove: string): string {
@@ -173,10 +186,6 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
   }
 
   useEffect(() => {
-    // if ANYONE is reading this code tell me why this works 🥀
-    // its running twice so i only do the second one since the first
-    // is terminated. but it works so don't touch it ig.
-    // i think its strict mode but idk.
     if (!ranBefore.current) {
       ranBefore.current = true;
       return;
@@ -340,12 +349,31 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
       const blackMoves = structuredHistory.filter((_, idx) => idx % 2 !== 0);
 
       const calculateGameAccuracy = (moves: MoveMetaData[]) => {
-        if (moves.length === 0) return 100;
-        const sumOfSquares = moves.reduce(
-          (sum, m) => sum + Math.pow(m.accuracy, 2),
+        const eligibleMoves = moves.filter((m) => m.classification !== "book");
+        if (eligibleMoves.length === 0) return 100;
+
+        const sumOfReciprocals = eligibleMoves.reduce(
+          (sum, m) => sum + 1 / Math.max(1, m.accuracy),
           0,
         );
-        return Math.sqrt(sumOfSquares / moves.length);
+        const harmonicMean = eligibleMoves.length / sumOfReciprocals;
+
+        let weightedSum = 0;
+        let weightTotal = 0;
+
+        for (let i = 0; i < eligibleMoves.length; i++) {
+          const move = eligibleMoves[i];
+          const weight = Math.max(0.1, Math.abs(move.accuracy - 50));
+          weightedSum += move.accuracy * weight;
+          weightTotal += weight;
+        }
+
+        const volatilityWeightedMean =
+          weightTotal > 0 ? weightedSum / weightTotal : harmonicMean;
+
+        const finalScore = (harmonicMean + volatilityWeightedMean) / 2;
+
+        return Math.round(finalScore * 10) / 10;
       };
 
       const whiteAccuracy = calculateGameAccuracy(whiteMoves);
@@ -650,7 +678,7 @@ function ChessAnalyzer({ pgn }: { pgn: string }) {
   }
 
   return (
-    <div className="font-sans text-[#383532] w-screen h-screen flex p-16 gap-4 bg-stone-200/50">
+    <div className="font-sans text-[#383532] w-screen h-screen flex p-8 gap-4 bg-stone-200/50">
       <div
         className={`h-full w-10 bg-white shadow-sm rounded-md flex items-end overflow-clip ${boardOrientation === "white" && "-scale-100"}`}
       >
