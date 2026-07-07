@@ -74,5 +74,6 @@ export function getCoachFeedback(
   const merged = `${randomPrefix} ${randomVariation}.`;
 
   if (self) return merged;
-  return merged.replace(/you/g, "they");
+  const modifiedReference = merged.toLowerCase().replace(/you/g, "they");
+  return modifiedReference.charAt(0).toUpperCase() + modifiedReference.slice(1);
 }

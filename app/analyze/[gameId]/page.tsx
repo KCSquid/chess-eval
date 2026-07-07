@@ -28,7 +28,7 @@ const COLORING: Record<string, string> = {
   blunder: "#FF392C",
 };
 
-const DEPTH = 8;
+const DEPTH = 17;
 
 interface MoveMetaData {
   san: string;
@@ -711,11 +711,11 @@ function ChessAnalyzer({ pgn, player }: { pgn: string; player: string }) {
 
         <div className="flex gap-2 h-24 w-full">
           <Image
-            src={"/gotham.png"}
+            src={"/coach.png"}
             alt="GothamChess"
             width={384}
             height={384}
-            className="size-24"
+            className="size-24 object-contain"
           />
           <div className="flex flex-1">
             <svg
